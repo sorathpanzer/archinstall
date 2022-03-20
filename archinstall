@@ -1,0 +1,603 @@
+#!/bin/bash
+echo "Choose your Distro:"
+OS=$(echo "Arch Parabola Void Manjaro Artix-OpenRC Artix-Runit Artix-S6 Artix-66 Artix-Dinit" | tr " " "\n" | fzf --reverse)
+clear
+exec &> >(tee -a "install.log") 2>install.error
+start=0
+source /root/install.cfg
+NA=" " # Not Applicable
+# 1=ARCH : 2=Parabola : 3=Void : 4=Manjaro : 5=Artix-OpenRC : 6=Artix-Runit : 7=Artix-S6 : 8=Artix-66 : 9=Artix-Dinit : 10=Debian : 11=Fedora
+FIRMWARE=(linux-firmware:$NA:linux-firmware:linux-firmware)
+RESOLV=(systemd-resolvconf:$NA:openresolv:systemd-resolvconf)
+BASE=(base:base:base-system:base)
+BASEDEVEL=(base-devel:base-devel:base-devel:base-devel)
+KERNEL=(linux-lts:linux-libre-lts:linux:linux510)
+KERNEL_HEADERS=(linux-lts-headers:linux-libre-lts-headers:linux-headers:linux510-headers)
+XORG_INPUT=(xorg-xinput:xorg-xinput:xorg-input-drivers:xorg-xinput)
+XRDB=(xorg-xrdb:xorg-xrdb:xrdb:xorg-xrdb)
+GRUBTRFS=(grub-btrfs:grub-btrfs:grub-btrfs-runit:grub-btrfs)
+GST_UGLY=(gst-plugins-ugly:gst-plugins-ugly:gst-plugins-ugly1:gst-plugins-ugly)
+MAN=(man:man:man-pages:man)
+EXFAT=(exfatprogs:exfatprogs:exfat-utils:exfatprogs)
+ADBLOCK=(python-adblock:python-adblock:python3-adblock:python-adblock)
+LIBREOFFICE=(libreoffice-still:libreoffice-still:libreoffice-base:libreoffice-still)
+LIBREOFFICE_LANG=(libreoffice-still-pt:libreoffice-still-pt:libreoffice-i18n-pt:libreoffice-still-pt)
+IMAGEMAGICK=(imagemagick:imagemagick:ImageMagick:imagemagick)
+TRANSMISSION=(transmission-cli:transmission-cli:transmission:transmission-cli)
+DEJAVU=(ttf-dejavu:ttf-dejavu:dejavu-fonts-ttf:ttf-dejavu)
+ARCH_AUDIT=(arch-audit:arch-audit:$NA:arch-audit)
+SNAP_PAC=(snap-pac:snap-pac:$NA:snap-pac)
+REFLECTOR=(reflector:reflector:$NA:pacman-mirrors)
+PACMAN_CONTRIB=(pacman-contrib:pacman-contrib:$NA:pacman-contrib)
+ARCHISO=(archiso:archiso:$NA:mkinitcpio-archiso)
+BROWSER=(falkon:$NA:falkon:falkon:falkon)
+INIT=($NA:$NA:$NA:$NA:openrc:runit:s6:suite66:dinit)
+RCSYSTEM=($NA:$NA:$NA:$NA:openrc-system:runit-system:s6-system:$NA:dinit-rc)
+ELOGIND=($NA:$NA:$NA:$NA:elogind-openrc:elogind-runit:elogind-s6:elogind-suite66:elogind-dinit)
+UPDATECRON=(doas pacman -Sy:doas pacman -Sy:doas xbps-install -S:doas pamac update:doas apt update)
+case "${OS}" in
+	"")         echo "No option was specified."; exit 1 ;;
+    Arch)           POS="1" ;;
+    Parabola)       POS="2" ;;
+    Void)           POS="3" ;;
+    Manjaro)        POS="4" ;;
+    Artix-OpenRC)   POS="5" ;;
+    Artix-Runit)    POS="6" ;;
+    Artix-S6)       POS="7" ;;
+    Debian)         POS="8" ;;
+esac
+SEL()
+{
+  for element in "$@"; do
+    echo "$element"
+  done | cut -d ':' -f $POS
+}
+if [ $OS = "Arch" ]; then
+  SERVICE_ENABLE="systemctl enable"
+else
+  SERVICE_ENABLE="rc-update add"
+fi
+PARABOLA="libelogind udev-init-scripts your-freedom openrc-desktop elogind your-initfreedom your-privacy networkmanager cronie-openrc transmission-openrc apparmor-openrc clamav-openrc dhcpcd-openrc"
+ARTIX="$(SEL $RCSYSTEM $ELOGIND) artix-branding-base"
+VOID="lf freetype-devel giflib-devel imlib2-devel libexif-devel libX11-devel libXft-devel libXinerama-devel xf86-video-nouveau"
+BASE="$(SEL $BASE $BASEDEVEL $KERNEL $KERNEL_HEADERS $FIRMWARE $RESOLV $ARCH_AUDIT $SNAP_PAC $REFLECTOR $PACMAN_CONTRIB $ARCHISO) pkgconf efibootmgr lvm2 btrfs-progs cryptsetup mtools grub $(SEL $GRUBTRFS $XORG_INPUT $XRDB $MAN $EXFAT $GST_UGLY $DEJAVU $APPARMOR) \
+  gst-libav sudo ntp xdg-user-dirs wireless_tools iwd wireguard-tools zsh zsh-syntax-highlighting zsh-autosuggestions util-linux opendoas dash git bc pulseaudio sx xorg-server dosfstools hsetroot alsa-utils snapper firewalld apparmor ntfs-3g dhcpcd"
+DWM="ripgrep mediainfo bat pass xdotool highlight $(SEL $IMAGEMAGICK $XSETROOT $TRANSMISSION) newsboat xclip numlockx scrot rsync zathura zathura-pdf-mupdf \
+  neovim udiskie stow trash-cli dunst cronie youtube-dl physlock picom jq ueberzug fzf mpv wmctrl light patch \
+  syncthing unzip usbutils checkbashisms ffmpegthumbnailer libexif pamixer alacritty lazygit dust rkhunter clamav"
+APPS="qutebrowser $(SEL $BROWSER $ADBLOCK $LIBREOFFICE $LIBREOFFICE_LANG)"
+VIRTUALIZATION="qemu bridge-utils virt-install libvirt virt-manager dnsmasq"
+partition()
+{
+  if lsblk | grep -q 'nvme0n1'; then
+    sgdisk --zap-all /dev/nvme0n1
+    sgdisk --clear \
+      --new 1::+512M --typecode=1:ef00 --change-name=1:'EFI boot partition' \
+      --new 2::-0 --typecode=2:8e00 --change-name=2:'Linux root filesystem' \
+      /dev/nvme0n1
+    mkfs.fat -F32 /dev/nvme0n1p1
+    echo -n "$LVM_PASSWORD" | cryptsetup luksFormat /dev/nvme0n1p2
+    echo -n "$LVM_PASSWORD" | cryptsetup open --type luks /dev/nvme0n1p2 cryptroot
+  else
+    wipefs -a /dev/sda
+    sfdisk --delete /dev/sda
+    echo "label: dos
+    device: /dev/sda
+    unit: sectors
+    /dev/sda1 : size=512MiB, type=83
+    /dev/sda2 : type=8e" | sfdisk /dev/sda
+    mkfs.ext4 /dev/sda1
+    echo -n "$LVM_PASSWORD" | cryptsetup luksFormat /dev/sda2
+    echo -n "$LVM_PASSWORD" | cryptsetup open --type luks /dev/sda2 cryptroot
+  fi
+  mkfs.btrfs -f /dev/mapper/cryptroot
+  mount /dev/mapper/cryptroot /mnt
+  btrfs subvolume create /mnt/@
+  btrfs subvolume create /mnt/@home
+  btrfs subvolume create /mnt/@var
+  btrfs subvolume create /mnt/@swap
+  btrfs subvolume create /mnt/@snapshots
+  chattr +C /mnt/@home
+  chattr +C /mnt/@var
+  chattr +C /mnt/@snapshots
+  umount /mnt
+  mount -o subvol=@,ssd,noatime,compress=zstd,space_cache=v2 /dev/mapper/cryptroot /mnt
+  mkdir /mnt/{boot,home,var,swap,.snapshots}
+  mount -o subvol=@home,ssd,noatime,compress=zstd,space_cache=v2 /dev/mapper/cryptroot /mnt/home
+  mount -o subvol=@var,ssd,noatime,compress=zstd,space_cache=v2 /dev/mapper/cryptroot /mnt/var
+  mount -o subvol=@swap,ssd,noatime,compress=zstd,space_cache=v2 /dev/mapper/cryptroot /mnt/swap
+  mount -o subvol=@snapshots,ssd,noatime,compress=zstd,space_cache=v2 /dev/mapper/cryptroot /mnt/.snapshots
+  truncate -s 0 /mnt/swap/swapfile
+  chattr +C /mnt/swap/swapfile
+  btrfs property set /mnt/swap/swapfile compression none
+  dd if=/dev/zero of=/mnt/swap/swapfile bs=1M count=8192 status=progress
+  chmod 600 /mnt/swap/swapfile
+  mkswap /mnt/swap/swapfile
+  swapon /mnt/swap/swapfile
+  if lsblk | grep -q 'nvme0n1'; then
+    mount /dev/nvme0n1p1 /mnt/boot
+  else
+    mount /dev/sda1 /mnt/boot
+  fi
+}
+install_arch()
+{
+  #reflector --country Belgium --country Germany --country Portugal --country Spain --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+  reflector --country Portugal --country Spain --country France --country Belgium --country Netherlands --country Germany --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+  pacman -Syy
+  cp -r /root/packages /mnt
+  pacstrap /mnt $BASE $DWM $APPS
+  cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+  genfstab -U /mnt >> /mnt/etc/fstab
+}
+install_manjaro()
+{
+  wget -nd -r --no-parent -A 'manjaro-keyring-*-any.pkg.tar.zst' https://mirror.alpix.eu/manjaro/stable/core/x86_64/
+  pacman --noconfirm -U manjaro-keyring*
+echo '
+Server = https://mirror.futureweb.be/manjaro/stable/$repo/$arch
+Server = http://mirror.datacenter.by/pub/mirrors/manjaro/stable/$repo/$arch
+Server = https://manjaro.mirror.garr.it/manjaro/stable/$repo/$arch' > /etc/pacman.d/mirrorlist
+  cp /etc/pacman.manj /mnt/etc/pacman.conf
+  cp /etc/pacman-mirrors.conf /mnt/etc/pacman-mirrors.conf
+  pacman -Syy
+  cp -r /root/packages /mnt
+  pacstrap /mnt $BASE $DWM $APPS
+  arch-chroot /mnt pacman-mirrors -f 5
+  genfstab -U /mnt >> /mnt/etc/fstab
+}
+install_parabola()
+{
+  cp /etc/pacman.parab /etc/pacman.conf
+  sed -i "s/RemoteFileSigLevel = Required DatabaseOptional/RemoteFileSigLevel = Never/" /etc/pacman.conf
+  pacman --noconfirm -U https://www.parabola.nu/packages/core/i686/archlinux32-keyring-transition/download/
+  pacman --noconfirm -U https://www.parabola.nu/packages/libre/x86_64/parabola-keyring/download
+  pacman --noconfirm -U https://www.parabola.nu/packages/libre/x86_64/pacman-mirrorlist/download
+  sed -i "s/RemoteFileSigLevel = Never/RemoteFileSigLevel = Required DatabaseOptional/" /etc/pacman.conf
+  echo '
+  Server = https://mirror.cyberbits.eu/parabola/$repo/os/$arch
+  Server = https://mirror.grapentin.org/parabola/$repo/os/$arch
+  Server = https://repo.parabola.nu/parabola/$repo/os/$arch
+  ' > /etc/pacman.d/mirrorlist
+  pacstrap /mnt $BASE $PARABOLA $DWM $APPS
+  cp /etc/pacman.conf /mnt/etc/pacman.conf
+  cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+  genfstab -U -p /mnt >> /mnt/etc/fstab
+}
+install_artix()
+{
+ curl https://gitea.artixlinux.org/packagesP/pacman/raw/branch/master/trunk/pacman.conf -o /etc/pacman.conf
+ curl https://gitea.artixlinux.org/packagesA/artix-mirrorlist/raw/branch/master/trunk/mirrorlist -o /etc/pacman.d/mirrorlist
+ sed -i "s/SigLevel = Required DatabaseOptional/SigLevel = Never/" /etc/pacman.conf
+ pacman -Syy
+ pacman --noconfirm -S artix-keyring
+ pacman-key --populate artix
+ pacman-key --lsign-key 95AEC5D0C1E294FC9F82B253573A673A53C01BC2
+ pacman --noconfirm -S artix-archlinux-support
+ sed -i "s/SigLevel = Never/SigLevel = Required DatabaseOptional/" /etc/pacman.conf
+cat <<EOF > /mnt/etc/pacman.conf
+ # Arch
+ [extra]
+ Include = /etc/pacman.d/mirrorlist-arch
+ [community]
+ Include = /etc/pacman.d/mirrorlist-arch
+EOF
+ pacstrap /mnt $BASE $ARTIX $DWM $APPS
+ cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+ genfstab -U -p /mnt >> /mnt/etc/fstab
+}
+install_void()
+{
+  #pacman -Syy
+  #pacman --noconfirm -U /root/packages/xbps-0.59.1-1-x86_64.pkg.tar.zst
+  #mkdir -p /mnt/var/db/xbps/keys/
+  #cp -a /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
+  #REPO='https://alpha.de.repo.voidlinux.org'
+  #env XBPS_ARCH=x86_64-musl xbps-install -Sy -R ${REPO}/current/musl -r /mnt $BASE $DWM $APPS $VOID
+  #curl https://alpha.de.repo.voidlinux.org/live/current/void-x86_64-musl-ROOTFS-20210930.tar.xz -o void-x86_64-musl-ROOTFS-20210930.tar.xz
+  curl https://alpha.de.repo.voidlinux.org/live/current/void-x86_64-ROOTFS-20210930.tar.xz -o void-x86_64-ROOTFS-20210930.tar.xz
+  tar xvf void-x86_64-musl-ROOTFS-20210930.tar.xz -C /mnt
+  arch-chroot /mnt xbps-install -Syu xbps
+  arch-chroot /mnt xbps-install -yu
+  arch-chroot /mnt xbps-install -y base-system
+  arch-chroot /mnt xbps-remove -y base-voidstrap
+  arch-chroot /mnt xbps-install -Sy $BASE $DWM $APPS $VOID
+  arch-chroot /mnt chown root:root /
+  arch-chroot /mnt chmod 755 /
+  cp /etc/resolv.conf /mnt/etc
+  genfstab -U -p /mnt >> /mnt/etc/fstab
+}
+install_debian()
+{
+  debootstrap include="$BASE $DWM $APPS" --arch x86_64 stable /mnt http://deb.debian.org/debian/
+}
+configure_locale()
+{
+  arch-chroot /mnt ln -sf /usr/share/zoneinfo/Europe/Lisbon /etc/localtime
+  arch-chroot /mnt hwclock --systohc --utc
+  mkdir -p /mnt/etc/X11/xorg.conf.d
+  echo 'Section "InputClass"
+  Identifier "system-keyboard"
+  MatchIsKeyboard "on"
+  Option "XkbLayout" "pt"
+  Option "XkbModel" "pc105"
+  EndSection' > /mnt/etc/X11/xorg.conf.d/00-keyboard.conf
+  if [ $OS = "Arch" ] || [ $OS = "Parabola" ]; then
+    echo "pt_PT.UTF-8 UTF-8" >> /mnt/etc/locale.gen
+    arch-chroot /mnt locale-gen
+    echo 'LANG=pt_PT.UTF-8' > /mnt/etc/locale.conf
+  fi
+  if [ $OS = "Parabola" ]; then
+    arch-chroot /mnt sed -i 's/keymap=".*"/keymap="pt-latin1"/' /mnt/etc/conf.d/keymaps
+  fi
+  if [ $OS = "Arch" ]; then
+    echo "KEYMAP=pt-latin1.map.gz" > /mnt/etc/vconsole.conf
+    echo "$HOSTNAME" > /mnt/etc/hostname
+  else
+    echo 'hostname="HOSTNAME"' | sed s/HOSTNAME/$HOSTNAME/ > /mnt/etc/conf.d/hostname
+  fi
+  echo "127.0.0.1 localhost" >> /mnt/etc/hosts
+  echo "::1       localhost" >> /mnt/etc/hosts
+  echo "127.0.1.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
+}
+virtualization()
+{
+arch-chroot /mnt pacman --noconfirm -S $VIRTUALIZATION
+arch-chroot /mnt SEL $SERVICE_ENABLE libvirtd.service
+arch-chroot /mnt virsh net-start default
+arch-chroot /mnt virsh net-autostart default
+}
+configure_user()
+{
+  arch-chroot /mnt sed -i 's/# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt passwd
+  arch-chroot /mnt useradd -m -G wheel,audio,video,transmission -s /bin/bash $USER_NAME
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt passwd $USER_NAME
+  arch-chroot /mnt sed -i 's/\/bin\/bash/\/usr\/bin\/zsh/' /etc/passwd
+}
+configure_home()
+{
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME mkdir -p /home/$USER_NAME/{Transferências,Documentos,Música,Imagens/Screenshots,Vídeos,.cache/{lf,transmission}}
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME mkdir -p /home/$USER_NAME/.local/share/{backgrounds,gvfs-metadata,icc,keyrings,nvim,sounds,Trash,xorg}
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME touch /home/$USER_NAME/.local/recently-used.xbel
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME git config --global user.name "$GIT_USERNAME"
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME git config --global user.email "$GIT_EMAIL"
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME git clone https://gitea.com/sorathpanzer/dotgit.git /home/$USER_NAME/.config/dotgit
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME git config --global credential.helper store
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME mkdir -p /home/$USER_NAME/.cache/zsh
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME touch /home/$USER_NAME/.cache/zsh/history
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME sh -c "cd /home/$USER_NAME/.config/dotgit; stow -vt ~ dotfiles"
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME rm -R /home/$USER_NAME/.local/share/{applications,backgrounds,gvfs-metadata,icc,keyrings,nvim,sounds,Trash,xorg}
+  printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME touch /home/$USER_NAME/.local/recently-used.xbel
+  #printf "$PASSWORD\n$PASSWORD" | arch-chroot /mnt sudo -Hu $USER_NAME crontab -l | { cat; echo "0 */2 * * * SEL $UPDATECRON"; } | crontab -
+  echo "0 */2 * * * doas pacman -Sy" > /mnt/var/spool/cron/$USER_NAME
+  if lsblk | grep -q 'nvme0n1'; then
+    rsync -avrop /root/disk/BackHome/* /mnt/home/$USER_NAME
+  fi
+}
+configure_mkinitcpio()
+{
+  if [ $OS = "Arch" ] || [ $OS = "Parabola" ] || [ $OS = "Manjaro" ]; then
+    sed -i 's/HOOKS=(.*)/HOOKS=(base udev autodetect modconf block keymap keyboard encrypt filesystems resume grub-btrfs-overlayfs)/' /mnt/etc/mkinitcpio.conf
+    sed -i 's/#COMPRESSION="zstd"/COMPRESSION="zstd"/' /mnt/etc/mkinitcpio.conf
+    sed -i 's/PRESETS=('default' 'fallback')/PRESETS=('default')/' /mnt/etc/mkinitcpio.d/linux-lts.preset
+    arch-chroot /mnt mkinitcpio -p $(SEL $KERNEL_HARD)
+    arch-chroot /mnt mkinitcpio -p $(SEL $KERNEL)
+  else
+    echo 'add_dracutmodules+="btrfs base udev autodetect modconf block keymap keyboard lvm encrypt filesystems resume"' >> /etc/dracut.conf
+    echo 'compress="zstd"' >> /etc/dracut.conf
+    echo 'tmpdir="/tmp"' >> /etc/dracut.conf
+    echo 'hostonly="yes"' >> /etc/dracut.conf
+    arch-chroot /mnt dracut --force --hostonly --kver $(ls /mnt/boot | grep vmlinuz | cut -d '-' -f2)
+    arch-chroot /mnt xbps-reconfigure -f linux
+  fi
+}
+configure_grub()
+{
+  arch-chroot /mnt /bin/bash -e <<EOF
+    # Snapper configuration
+    umount /.snapshots
+    rm -rf /.snapshots
+    snapper --no-dbus -c root create-config /
+    btrfs subvolume delete /.snapshots
+    mkdir /.snapshots
+    mount -a
+    chmod 750 /.snapshots
+EOF
+  if lsblk | grep -q 'nvme0n1'; then
+    UUIDp2=$(blkid /dev/nvme0n1p2 | awk '{print $2}' | sed s/\"//g)
+  else
+    UUIDp2=$(blkid /dev/sda2 | awk '{print $2}' | sed s/\"//g)
+  fi
+  sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /mnt/etc/default/grub
+  sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\".*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"cryptdevice=$UUIDp2\:cryptroot resume=$UUIDp2 loglevel=3 quiet lsm=landlock,lockdown,yama,apparmor,bpf zswap.enabled=1\"/" /mnt/etc/default/grub
+  sed -i 's/#GRUB_ENABLE_CRYPTODISK=y/GRUB_ENABLE_CRYPTODISK=y/' /mnt/etc/default/grub
+  sed -i 's/GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/' /mnt/etc/default/grub
+  if lsblk | grep -q 'nvme0n1'; then
+    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+  else
+    arch-chroot /mnt grub-install --target=i386-pc --modules="btrfs" /dev/sda
+  fi
+  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+}
+configure_system()
+{
+  echo "permit persist $USER_NAME as root
+  permit nopass $USER_NAME cmd pacman
+  permit nopass $USER_NAME cmd journalctl
+  permit nopass $USER_NAME cmd paru
+  permit nopass $USER_NAME cmd poweroff
+  permit nopass $USER_NAME cmd reboot
+  permit nopass $USER_NAME cmd udiskctl
+  permit nopass $USER_NAME cmd informant
+  permit nopass $USER_NAME cmd mount
+  permit nopass $USER_NAME cmd light" > /mnt/etc/doas.conf
+  echo "vm.swappiness=10" > /mnt/etc/sysctl.d/99-sysctl.conf
+  arch-chroot /mnt echo 1 | sudo tee /sys/module/snd_hda_intel/parameters/power_save
+  #echo "blacklist ideapad_laptop" > /mnt/etc/modprobe.d/blacklist.conf
+  echo '/* Allow members of the wheel group to execute any actions
+  * without password authentication, similar to "sudo NOPASSWD:"
+  */
+  polkit.addRule(function(action, subject) {
+  if (subject.isInGroup("wheel")) {
+    return polkit.Result.YES;
+  }
+});' > /mnt/etc/polkit-1/rules.d/49-nopasswd_global.rules
+echo 'polkit.addRule(function(action, subject) {
+if ((action.id == "org.freedesktop.udisks2.filesystem-mount-system" ||
+  action.id == "org.freedesktop.udisks.filesystem-mount-system-internal") &&
+  subject.local && subject.active && subject.isInGroup("wheel"))
+  {
+    return polkit.Result.YES;
+  }
+});' > /mnt/etc/polkit-1/rules.d/allow-mount-internal.rules
+mkdir -p /mnt/media
+echo '# UDISKS_FILESYSTEM_SHARED
+# ==1: mount filesystem to a shared directory (/media/VolumeName)
+# ==0: mount filesystem to a private directory (/run/media/$USER/VolumeName)
+# See udisks(8)
+ENV{ID_FS_USAGE}=="filesystem|other|crypto", ENV{UDISKS_FILESYSTEM_SHARED}="1"' > /mnt/etc/udev/rules.d/99-udisks2.rules
+mkdir /mnt/usr/share/xsessions
+cat <<EOF > /mnt/usr/share/xsessions/dwm.desktop
+[Desktop Entry]
+Encoding=UTF-8
+Name=Dwm
+Comment=Dynamic window manager
+Exec=/usr/local/bin/dwm
+Type=XSession
+EOF
+arch-chroot /mnt ln -sfT dash /usr/bin/sh
+mkdir /mnt/etc/iwd
+echo "[General]
+EnableNetworkConfiguration=true
+[Settings]
+AutoConnect=true" > /mnt/etc/iwd/main.conf
+# Enabling CPU Mitigations
+curl https://raw.githubusercontent.com/Whonix/security-misc/master/etc/default/grub.d/40_cpu_mitigations.cfg >> /mnt/etc/grub.d/40_cpu_mitigations
+# Distrusting the CPU
+curl https://raw.githubusercontent.com/Whonix/security-misc/master/etc/default/grub.d/40_distrust_cpu.cfg >> /mnt/etc/grub.d/40_distrust_cpu
+# Enabling IOMMU
+curl https://raw.githubusercontent.com/Whonix/security-misc/master/etc/default/grub.d/40_enable_iommu.cfg >> /mnt/etc/grub.d/40_enable_iommu
+# Setting GRUB configuration file permissions
+chmod 755 /mnt/etc/grub.d/*
+# Configure AppArmor Parser caching
+sed -i 's/#write-cache/write-cache/g' /etc/apparmor/parser.conf
+sed -i 's,#Include /etc/apparmor.d/,Include /etc/apparmor.d/#g' /etc/apparmor/parser.conf
+# Blacklisting kernel modules
+curl https://raw.githubusercontent.com/Whonix/security-misc/master/etc/modprobe.d/30_security-misc.conf >> /mnt/etc/modprobe.d/30_security-misc.conf
+chmod 600 /mnt/etc/modprobe.d/*
+# Security kernel settings.
+curl https://raw.githubusercontent.com/Whonix/security-misc/master/etc/sysctl.d/30_security-misc.conf >> /mnt/etc/sysctl.d/30_security-misc.conf
+sed -i 's/kernel.yama.ptrace_scope=2/kernel.yama.ptrace_scope=3/g' /mnt/etc/sysctl.d/30_security-misc.conf
+curl https://raw.githubusercontent.com/Whonix/security-misc/master/etc/sysctl.d/30_silent-kernel-printk.conf >> /mnt/etc/sysctl.d/30_silent-kernel-printk.conf
+chmod 600 /mnt/etc/sysctl.d/*
+# IO udev rules
+curl https://gitlab.com/garuda-linux/themes-and-settings/settings/garuda-common-settings/-/raw/master/etc/udev/rules.d/50-sata.rules > /mnt/etc/udev/rules.d/50-sata.rules
+curl https://gitlab.com/garuda-linux/themes-and-settings/settings/garuda-common-settings/-/raw/master/etc/udev/rules.d/60-ioschedulers.rules > /etc/udev/rules.d/60-ioschedulers.rules
+chmod 600 /mnt/etc/udev/rules.d/*
+# Remove nullok from system-auth
+sed -i 's/nullok//g' /mnt/etc/pam.d/system-auth
+# Disable coredump
+echo "* hard core 0" >> /mnt/etc/security/limits.conf
+# Disable su for non-wheel users
+bash -c 'cat > /mnt/etc/pam.d/su' <<-'EOF'
+#%PAM-1.0
+auth		sufficient	pam_rootok.so
+# Uncomment the following line to implicitly trust users in the "wheel" group.
+#auth		sufficient	pam_wheel.so trust use_uid
+# Uncomment the following line to require a user to be in the "wheel" group.
+auth		required	pam_wheel.so use_uid
+auth		required	pam_unix.so
+account		required	pam_unix.so
+session		required	pam_unix.so
+EOF
+arch-chroot /mnt /bin/bash -e <<EOF
+    # Setting up timezone.
+    ln -sf /usr/share/zoneinfo/$(curl -s http://ip-api.com/line?fields=timezone) /etc/localtime &>/dev/null
+    # Setting up clock.
+    hwclock --systohc
+    # Generating locales.my keys aren't even on
+    echo "Generating locales."
+    locale-gen &>/dev/null
+EOF
+# Enable AppArmor notifications
+bash -c 'cat > /mnt/home/${USER}/.config/autostart/apparmor-notify.desktop' <<-'EOF'
+[Desktop Entry]
+Type=Application
+Name=AppArmor Notify
+Comment=Receive on screen notifications of AppArmor denials
+TryExec=aa-notify
+Exec=aa-notify -p -s 1 -w 60 -f /var/log/audit/audit.log
+StartupNotify=false
+NoDisplay=true
+EOF
+}
+configure_archbased()
+{
+  arch-chroot /mnt mkdir /etc/pacman.d/hook
+  cat <<EOF > /mnt/etc/pacman.d/hooks/50-bootbackup.hook
+[Trigger]
+Operation = Upgrade
+Operation = Install
+Operation = Remove
+Type = Path
+Target = usr/lib/modules/*/vmlinuz
+[Action]
+Depends = rsync
+Description = Backing up /boot...
+When = PreTransaction
+Exec = /usr/bin/rsync -a --delete /boot /.bootbackup
+EOF
+cat <<EOF > /mnt/usr/share/libalpm/hooks/dash-shlink.hook
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = bash
+[Action]
+Description = Re-pointing /bin/sh symlink to dash...
+When = PostTransaction
+Exec = /usr/bin/ln -sfT dash /usr/bin/sh
+Depends = dash
+EOF
+  echo "nameserver 1.1.1.1" > /mnt/etc/resolv.conf
+  arch-chroot /mnt sh -c "cd /home/$USER_NAME/.config/suckless; pacman --noconfirm -U paru*"
+  arch-chroot /mnt sh -c "cd /home/$USER_NAME/.config/suckless; pacman --noconfirm -U lf*"
+}
+configure_arch()
+{
+  configure_archbased
+  arch-chroot /mnt $SERVICE_ENABLE reflector.service
+  echo "vboxdrv
+  vboxnetadp
+  vboxflt" > /mnt/etc/modules-load.d/virtualbox.conf
+  mkdir -p /mnt/etc/systemd/system/transmission.service.d
+  echo "[Service]
+  User=$USER_NAME" > /mnt/etc/systemd/system/transmission.service.d/username.conf
+  mkdir -p /mnt/etc/systemd/system/getty@tty1.service.d
+  touch /mnt/etc/systemd/system/getty@tty1.service.d/override.conf
+  echo "[Service]
+  ExecStart=
+  ExecStart=-/usr/bin/agetty --autologin $USER_NAME --noclear %I $TERM" > /mnt/etc/systemd/system/getty@tty1.service.d/override.conf
+  echo "[Unit]
+  Description=Pacman mirrorlist update
+  Wants=network-online.target
+  After=network-online.target
+  [Service]
+  Type=oneshot
+  ExecStart=reflector --country Portugal --country Spain --country Belgium --country Germany --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+  [Install]
+  RequiredBy=multi-user.target" > /mnt/etc/systemd/system/reflector.service
+  cat <<EOF > /etc/systemd/system/suspend@.service
+  [Unit]
+  Description=User suspend actions
+  After=sleep.target
+  [Service]
+  User=%i
+  Type=forking
+  Environment=DISPLAY=:0
+  ExecStart=/usr/bin/physlock
+  ExecStartPost=/usr/bin/sleep 1
+  [Install]
+  WantedBy=sleep.target
+EOF
+  arch-chroot /mnt $SERVICE_ENABLE snapper-timeline.timer snapper-cleanup.timer grub-btrfs.path fstrim.timer systemd-oomd
+  arch-chroot /mnt $SERVICE_ENABLE cronie iwd.service transmission-daemon apparmor suspend@sorath.service firewalld
+  arch-chroot /mnt aa-enforce /etc/apparmor.d/*
+}
+configure_parabola()
+{
+  configure_archbased
+  cat <<EOF > /mnt/etc/cron.weekly/reflector
+  #!/bin/sh
+  reflector --country Portugal --country France --country Germany --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+  EOF
+  chmod u+x /mnt/etc/cron.weekly/reflector
+EOF
+  cat <<EOF > /mnt/etc/init.d/iwd
+  #!/usr/bin/openrc-run
+  pidfile="/run/iwd.pid"
+  command="/usr/lib/iwd/iwd"
+  command_background="yes"
+  depend() {
+    need dbus
+    keyword -shutdown
+  }
+EOF
+chmod +x /mnt/etc/init.d/iwd
+  cat <<EOF > /mnt/etc/init.d/firewalld
+  #!/sbin/openrc-run
+  description="FirewallD"
+  command=/usr/sbin/firewalld
+  pidfile=/var/run/firewalld.pid
+  depend() {
+	need dbus
+	provide iptables ip6tables ebtables
+  }
+EOF
+chmod +x /mnt/etc/init.d/firewalld
+echo "nameserver 192.168.1.1" >> /mnt/etc/resolv.conf
+cat <<EOF > /etc/cron.weekly/fstrim
+#!/bin/sh
+fstrim /
+EOF
+chmod u+x /etc/cron.weekly/fstrim
+arch-chroot /mnt sed -i 's/agetty_options=".*"/agetty_options="-a sorath"/' /etc/conf.d/agetty.tty1
+arch-chroot /mnt $SERVICE_ENABLE dbus elogind cronie iwd.service transmission-daemon apparmor firewalld dhcpcd
+arch-chroot /mnt aa-enforce /etc/apparmor.d/*
+}
+configure_void()
+{
+  cp -R /mnt/etc/sv/agetty-tty1 /mnt/etc/sv/agetty-autologin-tty1
+  cat <<EOF >  /mnt/etc/sv/agetty-autologin-tty1/conf
+  GETTY_ARGS="--autologin $USER_NAME --noclear"
+  BAUD_RATE=38400
+  TERM_NAME=linux
+  EOF
+  cat <<EOF > /etc/cron.weekly/fstrim
+#!/bin/sh
+fstrim /
+EOF
+chmod u+x /etc/cron.weekly/fstrim
+rm /mnt/etc/runit/runsvdir/default/agetty-tty1
+arch-chroot /mnt ln -srf /etc/sv/{dbus,iwd,agetty-autologin-tty1,transmission-daemon,cronie,grub-btrfs,elogind,polkitd,grub-btrfs,snapperd,apparmor,dhcpcd} /etc/runit/runsvdir/default/
+arch-chroot /mnt aa-enforce /etc/apparmor.d/*
+}
+# Start Functions
+partition
+case "${OS}" in
+	"")         echo "No option was specified."; exit 1 ;;
+    Arch)           install_arch ;;
+    Manjaro)        install_manjaro ;;
+    Parabola)       install_parabola ;;
+    Artix-OpenRC)   install_artix ;;
+    Artix-Runit)    install_artix ;;
+    Artix-S6)       install_artix ;;
+    Artix-66)       install_artix ;;
+    Artix-Dinit)    install_artix ;;
+    Void)           install_void ;;
+    Debian)         install_debian ;;
+esac
+#virtualization
+configure_locale
+configure_user
+configure_home
+configure_mkinitcpio
+configure_grub
+configure_system
+case "${OS}" in
+	"")         echo "No option was specified."; exit 1 ;;
+    Arch)           configure_arch ;;
+    Manjaro)        configure_arch ;;
+    Parabola)       configure_parabola ;;
+    Artix-OpenRC)   configure_parabola ;;
+    Artix-Runit)    configure_parabola ;;
+    Artix-S6)       configure_parabola ;;
+    Artix-66)       configure_parabola ;;
+    Artix-Dinit)    configure_parabola ;;
+    Void)           configure_void ;;
+    Debian)         configure_debian ;;
+esac
+cat install.error | grep error
+runtime="$(($SECONDS / 3600))hrs $((($SECONDS / 60) % 60))min $(($SECONDS % 60))sec"
+echo "The system was installed in: $runtime!"
