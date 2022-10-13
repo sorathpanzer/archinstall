@@ -554,10 +554,12 @@ configure_void()
   BAUD_RATE=38400
   TERM_NAME=linux
   EOF
+  
   cat <<EOF > /etc/cron.weekly/fstrim
 #!/bin/sh
 fstrim /
 EOF
+
 chmod u+x /etc/cron.weekly/fstrim
 rm /mnt/etc/runit/runsvdir/default/agetty-tty1
 arch-chroot /mnt ln -srf /etc/sv/{dbus,iwd,agetty-autologin-tty1,transmission-daemon,cronie,grub-btrfs,elogind,polkitd,grub-btrfs,snapperd,apparmor,dhcpcd} /etc/runit/runsvdir/default/
